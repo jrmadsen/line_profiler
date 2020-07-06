@@ -6,6 +6,11 @@ def _default_component():
 
 _component_generator = _default_component
 _component_display_units = "sec"
+_component_num_prealloc = 0
+
+def set_component_prealloc(_num_prealloc):
+    global _component_num_prealloc
+    _component_num_prealloc = _num_prealloc
 
 def set_component_generator(_gen):
     global _component_generator
@@ -72,26 +77,29 @@ cdef class LineMetrics:
     """
     cdef public object code
     cdef public int lineno
-    cdef public object wc
+    cdef public object comp
 
-    def __init__(self, object code, int lineno, object wc = get_component()):
+    def __init__(self, object code, int lineno, object comp = get_component()):
         self.code = code
         self.lineno = lineno
-        self.wc = wc
+        self.comp = comp
+
+    def valid(self):
+        return (self.comp.laps() > 0)
 
     def start(self):
-        self.wc.start()
+        self.comp.start()
 
     def stop(self):
-        self.wc.stop()
+        self.comp.stop()
 
     def astuple(self):
         """ Convert to a tuple of (lineno, hits, total).
         """
-        return (self.lineno, self.wc.laps(), self.wc.get())
+        return (self.lineno, self.comp.laps(), self.comp.get())
 
     def __repr__(self):
-        return '<LineMetrics for %r\n  lineno: %r\n  hits: %r\n  total: %r>' % (self.code, self.lineno, self.wc.laps(), self.wc.get())
+        return '<LineMetrics for %r\n  lineno: %r\n  hits: %r\n  total: %r>' % (self.code, self.lineno, self.comp.laps(), self.comp.get())
 
 
 # Note: this is a regular Python class to allow easy pickling.
@@ -141,6 +149,8 @@ cdef class LineProfiler:
             self.add_function(func)
 
     def add_function(self, func):
+        global _component_num_prealloc
+
         """ Record line profiling information for the given Python function.
         """
         try:
@@ -152,6 +162,11 @@ cdef class LineProfiler:
         if code not in self.code_map:
             self.code_map[code] = {}
             self.functions.append(func)
+        for i in range(_component_num_prealloc):
+            self.code_map[code][i] = LineMetrics(code, i, get_component())
+        if _component_num_prealloc > 0:
+            print("Number of pre-allocated components for {}: {}".format(
+                func.__name__, _component_num_prealloc))
 
     def enable_by_count(self):
         """ Enable the profiler if it hasn't been enabled before.
@@ -181,9 +196,20 @@ cdef class LineProfiler:
     def disable(self):
         unset_trace()
 
+    def cleanup(self):
+        # cleanup any lines pre-allocated but without entries
+        for code in self.code_map:
+            rmkeys = []
+            for f, s in self.code_map[code].items():
+                if not s.valid():
+                    rmkeys.append(f)
+            for i in rmkeys:
+                del self.code_map[code][i]
+
     def get_stats(self):
         """ Return a LineStats object containing the metrics.
         """
+        self.cleanup()
         stats = {}
         for code in self.code_map:
             entries = self.code_map[code].values()
@@ -200,30 +226,27 @@ cdef int python_trace_callback(object self_, PyFrameObject *py_frame, int what,
     cdef LineProfiler self
     cdef long nline
     cdef object code
+    cdef LineMetrics comp
 
     self = <LineProfiler>self_
     code_map = self.code_map
+    if self.last_tool is not None:
+        self.last_tool.stop()
 
-    if what == PyTrace_LINE or what == PyTrace_RETURN:
+    if what == PyTrace_LINE:
         code = <object>py_frame.f_code
         if code in code_map:
             # the current line
             nline = py_frame.f_lineno
-            if self.last_tool is not None:
-                self.last_tool.stop()
-            if code in code_map:
-                if nline not in code_map[code] or code_map[code][nline] is None:
-                    code_map[code][nline] = LineMetrics(code, nline, get_component())
-            if what == PyTrace_LINE:
-                # Get the time again. This way, we don't record much time wasted
-                # in this function.
-                self.last_tool = code_map[code][nline]
-                self.last_code = code
-                self.last_index = nline
-                code_map[code][nline].start()
+            if nline not in code_map[code]:
+                comp = LineMetrics(code, nline, get_component())
+                code_map[code][nline] = comp
             else:
-                # We are returning from a function, not executing a line.
-                pass
+                comp = code_map[code][nline]
+            self.last_tool = comp
+            self.last_code = code
+            self.last_index = nline
+            comp.start()
 
     return 0
 

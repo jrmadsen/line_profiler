@@ -36,8 +36,9 @@ except NameError:
 # =====================================
 
 
-
 CO_GENERATOR = 0x0020
+
+
 def is_generator(f):
     """ Return True if a function is a generator.
     """
@@ -157,21 +158,24 @@ def main(args=None):
     parser = optparse.OptionParser(usage=usage, version="%prog 1.0b2")
     parser.allow_interspersed_args = False
     parser.add_option('-l', '--line-by-line', action='store_true',
-        help="Use the line-by-line profiler from the line_profiler module "
-        "instead of Profile. Implies --builtin.")
+                      help="Use the line-by-line profiler from the line_profiler module "
+                      "instead of Profile. Implies --builtin.")
     parser.add_option('-b', '--builtin', action='store_true',
-        help="Put 'profile' in the builtins. Use 'profile.enable()' and "
-            "'profile.disable()' in your code to turn it on and off, or "
-            "'@profile' to decorate a single function, or 'with profile:' "
-            "to profile a single section of code.")
+                      help="Put 'profile' in the builtins. Use 'profile.enable()' and "
+                      "'profile.disable()' in your code to turn it on and off, or "
+                      "'@profile' to decorate a single function, or 'with profile:' "
+                      "to profile a single section of code.")
     parser.add_option('-o', '--outfile', default=None,
-        help="Save stats to <outfile>")
+                      help="Save stats to <outfile>")
     parser.add_option('-s', '--setup', default=None,
-        help="Code to execute before the code to profile")
+                      help="Code to execute before the code to profile")
     parser.add_option('-v', '--view', action='store_true',
-        help="View the results of the profile in addition to saving it.")
+                      help="View the results of the profile in addition to saving it.")
     parser.add_option('-c', '--component', type=str, default="WallClock",
-        help="Set the performance analysis component.")
+                      help="Set the performance analysis component.")
+    parser.add_option('-p', '--num-preallocated', type=int, default=0,
+                      help=("Set the number of pre-allocated component entries for each function. "
+                            "Enable this option for better performance at the cost of using more memory"))
 
     if not sys.argv[1:]:
         parser.print_usage()
@@ -185,7 +189,6 @@ def main(args=None):
         else:
             extension = 'prof'
         options.outfile = '%s.%s' % (os.path.basename(args[0]), extension)
-
 
     sys.argv[:] = args
     if options.setup is not None:
@@ -202,26 +205,27 @@ def main(args=None):
 
     from timemory.component import get_generator
     from ._line_profiler import set_component_generator
+    from ._line_profiler import set_component_prealloc
+    from . import line_profiler
 
     generator = get_generator(options.component)
     if generator is None:
-        msg = "Error! timemory.component.get_generator produced no generator for {}. ".format(options.component)
+        msg = "Error! timemory.component.get_generator produced no generator for {}. ".format(
+            options.component)
         msg += "Either the component is not available or there is no component by that ID"
         raise RuntimeError(msg)
     set_component_generator(generator)
+    set_component_prealloc(options.num_preallocated)
 
-    if options.line_by_line:
-        from . import line_profiler
-        prof = line_profiler.LineProfiler()
-        options.builtin = True
-    else:
-        prof = ContextualProfile()
+    prof = line_profiler.LineProfiler()
+    options.builtin = True
     if options.builtin:
         if PY3:
             import builtins
         else:
             import __builtin__ as builtins
         builtins.__dict__['profile'] = prof
+        builtins.__dict__['line_profile'] = prof
 
     script_file = find_script(sys.argv[0])
     __file__ = script_file
@@ -237,7 +241,8 @@ def main(args=None):
             if options.builtin:
                 execfile(script_file, ns, ns)
             else:
-                prof.runctx('execfile_(%r, globals())' % (script_file,), ns, ns)
+                prof.runctx('execfile_(%r, globals())' %
+                            (script_file,), ns, ns)
         except (KeyboardInterrupt, SystemExit):
             pass
     finally:
@@ -245,6 +250,7 @@ def main(args=None):
         print('Wrote profile results to %s' % options.outfile)
         if options.view:
             prof.print_stats()
+
 
 if __name__ == '__main__':
     sys.exit(main(sys.argv))
