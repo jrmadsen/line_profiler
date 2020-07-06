@@ -1,5 +1,24 @@
 from .python25 cimport PyFrameObject, PyObject, PyStringObject
+from libc.stdlib cimport free
 
+def _default_component():
+    return None
+
+_component_generator = _default_component
+_component_display_units = "sec"
+
+def set_component_generator(_gen):
+    global _component_generator
+    global _component_display_units
+    _component_generator = _gen
+    try:
+        _component_display_units = _gen().display_unit()
+    except:
+        pass
+
+def get_component():
+    global _component_generator
+    return _component_generator()
 
 cdef extern from "frameobject.h":
     ctypedef int (*Py_tracefunc)(object self, PyFrameObject *py_frame, int what, PyObject *arg)
@@ -33,13 +52,8 @@ cdef extern from "Python.h":
     cdef int PyTrace_C_EXCEPTION
     cdef int PyTrace_C_RETURN
 
-cdef extern from "timers.h":
-    PY_LONG_LONG hpTimer()
-    double hpTimerUnit()
-
 cdef extern from "unset_trace.h":
     void unset_trace()
-
 
 def label(code):
     """ Return a (filename, first_lineno, func_name) tuple for a given code
@@ -53,33 +67,31 @@ def label(code):
         return (code.co_filename, code.co_firstlineno, code.co_name)
 
 
-cdef class LineTiming:
+cdef class LineMetrics:
     """ The timing for a single line.
     """
     cdef public object code
     cdef public int lineno
-    cdef public PY_LONG_LONG total_time
-    cdef public long nhits
+    cdef public object wc
 
-    def __init__(self, object code, int lineno):
+    def __init__(self, object code, int lineno, object wc = get_component()):
         self.code = code
         self.lineno = lineno
-        self.total_time = 0
-        self.nhits = 0
+        self.wc = wc
 
-    cdef hit(self, PY_LONG_LONG dt):
-        """ Record a line timing.
-        """
-        self.nhits += 1
-        self.total_time += dt
+    def start(self):
+        self.wc.start()
+
+    def stop(self):
+        self.wc.stop()
 
     def astuple(self):
-        """ Convert to a tuple of (lineno, nhits, total_time).
+        """ Convert to a tuple of (lineno, hits, total).
         """
-        return (self.lineno, self.nhits, self.total_time)
+        return (self.lineno, self.wc.laps(), self.wc.get())
 
     def __repr__(self):
-        return '<LineTiming for %r\n  lineno: %r\n  nhits: %r\n  total_time: %r>' % (self.code, self.lineno, self.nhits, <long>self.total_time)
+        return '<LineMetrics for %r\n  lineno: %r\n  hits: %r\n  total: %r>' % (self.code, self.lineno, self.wc.laps(), self.wc.get())
 
 
 # Note: this is a regular Python class to allow easy pickling.
@@ -88,33 +100,42 @@ class LineStats(object):
 
     Attributes
     ----------
-    timings : dict
+    metrics : dict
         Mapping from (filename, first_lineno, function_name) of the profiled
-        function to a list of (lineno, nhits, total_time) tuples for each
-        profiled line. total_time is an integer in the native units of the
+        function to a list of (lineno, nhits, total) tuples for each
+        profiled line. total is an integer in the native units of the
         timer.
     unit : float
         The number of seconds per timer unit.
     """
-    def __init__(self, timings, unit):
-        self.timings = timings
+    def __init__(self, metrics, unit, display_unit):
+        self.metrics = metrics
         self.unit = unit
+        self.display_unit = display_unit
 
 
 cdef class LineProfiler:
     """ Time the execution of lines of Python code.
     """
+    cdef public long last_index
+    cdef public object last_tool
+    cdef public object last_code
+    #
     cdef public list functions
     cdef public dict code_map
-    cdef public dict last_time
-    cdef public double timer_unit
     cdef public long enable_count
+    cdef public double unit
 
     def __init__(self, *functions):
+        global _component_display_units
+
         self.functions = []
         self.code_map = {}
-        self.last_time = {}
-        self.timer_unit = hpTimerUnit()
+        self.last_index = 0
+        self.last_tool = None
+        self.last_code = None
+        self.unit = get_component().unit()
+        self.display_unit = _component_display_units
         self.enable_count = 0
         for func in functions:
             self.add_function(func)
@@ -158,11 +179,10 @@ cdef class LineProfiler:
         PyEval_SetTrace(python_trace_callback, self)
 
     def disable(self):
-        self.last_time = {}
         unset_trace()
 
     def get_stats(self):
-        """ Return a LineStats object containing the timings.
+        """ Return a LineStats object containing the metrics.
         """
         stats = {}
         for code in self.code_map:
@@ -170,18 +190,7 @@ cdef class LineProfiler:
             key = label(code)
             stats[key] = [e.astuple() for e in entries]
             stats[key].sort()
-        return LineStats(stats, self.timer_unit)
-
-
-cdef class LastTime:
-    """ Record the last callback call for a given line.
-    """
-    cdef int f_lineno
-    cdef PY_LONG_LONG time
-
-    def __cinit__(self, int f_lineno, PY_LONG_LONG time):
-        self.f_lineno = f_lineno
-        self.time = time
+        return LineStats(stats, self.unit, self.display_unit)
 
 
 cdef int python_trace_callback(object self_, PyFrameObject *py_frame, int what,
@@ -189,39 +198,32 @@ cdef int python_trace_callback(object self_, PyFrameObject *py_frame, int what,
     """ The PyEval_SetTrace() callback.
     """
     cdef LineProfiler self
-    cdef object code, key
-    cdef dict line_entries, last_time
-    cdef LineTiming entry
-    cdef LastTime old
-    cdef PY_LONG_LONG time
+    cdef long nline
+    cdef object code
 
     self = <LineProfiler>self_
-    last_time = self.last_time
+    code_map = self.code_map
 
     if what == PyTrace_LINE or what == PyTrace_RETURN:
         code = <object>py_frame.f_code
-        if code in self.code_map:
-            time = hpTimer()
-            if code in last_time:
-                old = last_time[code]
-                line_entries = self.code_map[code]
-                key = old.f_lineno
-                if key not in line_entries:
-                    entry = LineTiming(code, old.f_lineno)
-                    line_entries[key] = entry
-                else:
-                    entry = line_entries[key]
-                entry.hit(time - old.time)
+        if code in code_map:
+            # the current line
+            nline = py_frame.f_lineno
+            if self.last_tool is not None:
+                self.last_tool.stop()
+            if code in code_map:
+                if nline not in code_map[code] or code_map[code][nline] is None:
+                    code_map[code][nline] = LineMetrics(code, nline, get_component())
             if what == PyTrace_LINE:
                 # Get the time again. This way, we don't record much time wasted
                 # in this function.
-                last_time[code] = LastTime(py_frame.f_lineno, hpTimer())
+                self.last_tool = code_map[code][nline]
+                self.last_code = code
+                self.last_index = nline
+                code_map[code][nline].start()
             else:
-                # We are returning from a function, not executing a line. Delete
-                # the last_time record. It may have already been deleted if we
-                # are profiling a generator that is being pumped past its end.
-                if code in last_time:
-                    del last_time[code]
+                # We are returning from a function, not executing a line.
+                pass
 
     return 0
 

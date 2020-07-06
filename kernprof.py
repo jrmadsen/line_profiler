@@ -170,6 +170,8 @@ def main(args=None):
         help="Code to execute before the code to profile")
     parser.add_option('-v', '--view', action='store_true',
         help="View the results of the profile in addition to saving it.")
+    parser.add_option('-c', '--component', type=str, default="WallClock",
+        help="Set the performance analysis component.")
 
     if not sys.argv[1:]:
         parser.print_usage()
@@ -198,8 +200,18 @@ def main(args=None):
         ns = locals()
         execfile(setup_file, ns, ns)
 
+    from timemory.component import get_generator
+    from ._line_profiler import set_component_generator
+
+    generator = get_generator(options.component)
+    if generator is None:
+        msg = "Error! timemory.component.get_generator produced no generator for {}. ".format(options.component)
+        msg += "Either the component is not available or there is no component by that ID"
+        raise RuntimeError(msg)
+    set_component_generator(generator)
+
     if options.line_by_line:
-        import line_profiler
+        from . import line_profiler
         prof = line_profiler.LineProfiler()
         options.builtin = True
     else:

@@ -25,6 +25,7 @@ from IPython.core.page import page
 from IPython.utils.ipstruct import Struct
 from IPython.core.error import UsageError
 
+import timemory.component
 from ._line_profiler import LineProfiler as CLineProfiler
 
 # Python 2/3 compatibility utils
@@ -69,7 +70,7 @@ def is_generator(f):
 
 
 class LineProfiler(CLineProfiler):
-    """ A profiler that records the execution times of individual lines.
+    """ A profiler that records a metric on individual lines.
     """
 
     def __call__(self, func):
@@ -141,7 +142,8 @@ class LineProfiler(CLineProfiler):
         """ Show the gathered statistics.
         """
         lstats = self.get_stats()
-        show_text(lstats.timings, lstats.unit, output_unit=output_unit, stream=stream, stripzeros=stripzeros)
+        show_text(lstats.metrics, lstats.unit, lstats.display_unit,
+                  output_unit=output_unit, stream=stream, stripzeros=stripzeros)
 
     def run(self, cmd):
         """ Profile a single executable statment in the main namespace.
@@ -188,8 +190,8 @@ class LineProfiler(CLineProfiler):
         return nfuncsadded
 
 
-def show_func(filename, start_lineno, func_name, timings, unit,
-    output_unit=None, stream=None, stripzeros=False):
+def show_func(filename, start_lineno, func_name, metrics, unit,
+    display_unit, output_unit=None, stream=None, stripzeros=False):
     """ Show results for a single function.
     """
     if stream is None:
@@ -197,20 +199,20 @@ def show_func(filename, start_lineno, func_name, timings, unit,
 
     template = '%6s %9s %12s %8s %8s  %-s'
     d = {}
-    total_time = 0.0
+    total_metric = 0.0
     linenos = []
-    for lineno, nhits, time in timings:
-        total_time += time
+    for lineno, nhits, metric in metrics:
+        total_metric += metric
         linenos.append(lineno)
 
-    if stripzeros and total_time == 0:
+    if stripzeros and total_metric == 0:
         return
 
     if output_unit is None:
         output_unit = unit
     scalar = unit / output_unit
 
-    stream.write("Total time: %g s\n" % (total_time * unit))
+    stream.write("Total metric: %g %s\n" % (total_metric, display_unit))
     if os.path.exists(filename) or filename.startswith("<ipython-input-"):
         stream.write("File: %s\n" % filename)
         stream.write("Function: %s at line %s\n" % (func_name, start_lineno))
@@ -225,17 +227,17 @@ def show_func(filename, start_lineno, func_name, timings, unit,
         stream.write("Are you sure you are running this program from the same directory\n")
         stream.write("that you ran the profiler from?\n")
         stream.write("Continuing without the function's contents.\n")
-        # Fake empty lines so we can see the timings, if not the code.
+        # Fake empty lines so we can see the metrics, if not the code.
         nlines = max(linenos) - min(min(linenos), start_lineno) + 1
         sublines = [''] * nlines
-    for lineno, nhits, time in timings:
+    for lineno, nhits, metric in metrics:
         d[lineno] = (nhits,
-            '%5.1f' % (time * scalar),
-            '%5.1f' % (float(time) * scalar / nhits),
-            '%5.1f' % (100 * time / total_time) )
+            '%5.1f' % (metric * scalar),
+            '%5.1f' % (float(metric) * scalar / nhits),
+            '%5.1f' % (100 * metric / total_metric) )
     linenos = range(start_lineno, start_lineno + len(sublines))
     empty = ('', '', '', '')
-    header = template % ('Line #', 'Hits', 'Time', 'Per Hit', '% Time',
+    header = template % ('Line #', 'Hits', 'Metric', 'Per Hit', '% Metric',
         'Line Contents')
     stream.write("\n")
     stream.write(header)
@@ -243,26 +245,26 @@ def show_func(filename, start_lineno, func_name, timings, unit,
     stream.write('=' * len(header))
     stream.write("\n")
     for lineno, line in zip(linenos, sublines):
-        nhits, time, per_hit, percent = d.get(lineno, empty)
-        txt = template % (lineno, nhits, time, per_hit, percent,
+        nhits, metric, per_hit, percent = d.get(lineno, empty)
+        txt = template % (lineno, nhits, metric, per_hit, percent,
                           line.rstrip('\n').rstrip('\r'))
         stream.write(txt)
         stream.write("\n")
     stream.write("\n")
 
-def show_text(stats, unit, output_unit=None, stream=None, stripzeros=False):
-    """ Show text for the given timings.
+def show_text(stats, unit, display_unit, output_unit=None, stream=None, stripzeros=False):
+    """ Show text for the given metrics.
     """
     if stream is None:
         stream = sys.stdout
 
     if output_unit is not None:
-        stream.write('Timer unit: %g s\n\n' % output_unit)
+        stream.write('Metric unit: %g (%s)\n\n' % (output_unit, display_unit))
     else:
-        stream.write('Timer unit: %g s\n\n' % unit)
+        stream.write('Metric unit: %g %s\n\n' % (unit, display_unit))
 
-    for (fn, lineno, name), timings in sorted(stats.items()):
-        show_func(fn, lineno, name, stats[fn, lineno, name], unit,
+    for (fn, lineno, name), metrics in sorted(stats.items()):
+        show_func(fn, lineno, name, stats[fn, lineno, name], unit, display_unit,
             output_unit=output_unit, stream=stream, stripzeros=stripzeros)
 
 @magics_class
@@ -304,7 +306,7 @@ class LineProfilerMagics(Magics):
 
         -s: strip out all entries from the print-out that have zeros.
 
-        -u: specify time unit for the print-out in seconds.
+        -u: specify metric unit for the print-out in seconds.
         """
 
         # Escape quote markers.
@@ -340,7 +342,7 @@ class LineProfilerMagics(Magics):
             try:
                 output_unit = float(opts.u[0])
             except Exception as e:
-                raise TypeError("Timer unit setting must be a float.")
+                raise TypeError("Metric unit setting must be a float.")
         else:
             output_unit = None
 
@@ -416,7 +418,7 @@ def load_stats(filename):
 
 
 def main():
-    usage = "usage: python -m line_profiler profile.lprof"
+    usage = "usage: python -m timemory.line_profiler <script>"
 
     parser = optparse.OptionParser(usage=usage,
                                    version=__version__)
@@ -425,7 +427,7 @@ def main():
     if len(args) != 1:
         parser.error("Must provide a filename.")
     lstats = load_stats(args[0])
-    show_text(lstats.timings, lstats.unit)
+    show_text(lstats.metrics, lstats.unit, lstats.display_unit)
 
 if __name__ == '__main__':
     main()
