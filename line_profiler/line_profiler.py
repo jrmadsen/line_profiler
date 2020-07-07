@@ -9,21 +9,12 @@ try:
 except ImportError:
     import pickle
 
-try:
-    from cStringIO import StringIO
-except ImportError:
-    from io import StringIO
 import functools
 import inspect
 import linecache
 import optparse
 import os
 import sys
-
-from IPython.core.magic import (Magics, magics_class, line_magic)
-from IPython.core.page import page
-from IPython.utils.ipstruct import Struct
-from IPython.core.error import UsageError
 
 import timemory.component
 from ._line_profiler import LineProfiler as CLineProfiler
@@ -53,15 +44,18 @@ else:
 
 if PY35:
     import inspect
+
     def is_coroutine(f):
         return inspect.iscoroutinefunction(f)
 else:
     def is_coroutine(f):
         return False
 
-# ============================================================
 
+# ============================================================
 CO_GENERATOR = 0x0020
+
+
 def is_generator(f):
     """ Return True if a function is a generator.
     """
@@ -191,7 +185,7 @@ class LineProfiler(CLineProfiler):
 
 
 def show_func(filename, start_lineno, func_name, metrics, unit,
-    display_unit, output_unit=None, stream=None, stripzeros=False):
+              display_unit, output_unit=None, stream=None, stripzeros=False):
     """ Show results for a single function.
     """
     if stream is None:
@@ -224,7 +218,8 @@ def show_func(filename, start_lineno, func_name, metrics, unit,
     else:
         stream.write("\n")
         stream.write("Could not find file %s\n" % filename)
-        stream.write("Are you sure you are running this program from the same directory\n")
+        stream.write(
+            "Are you sure you are running this program from the same directory\n")
         stream.write("that you ran the profiler from?\n")
         stream.write("Continuing without the function's contents.\n")
         # Fake empty lines so we can see the metrics, if not the code.
@@ -232,13 +227,13 @@ def show_func(filename, start_lineno, func_name, metrics, unit,
         sublines = [''] * nlines
     for lineno, nhits, metric in metrics:
         d[lineno] = (nhits,
-            '%5.1f' % (metric * scalar),
-            '%5.1f' % (float(metric) * scalar / nhits),
-            '%5.1f' % (100 * metric / total_metric) )
+                     '%5.1f' % (metric * scalar),
+                     '%5.1f' % (float(metric) * scalar / nhits),
+                     '%5.1f' % (100 * metric / total_metric))
     linenos = range(start_lineno, start_lineno + len(sublines))
     empty = ('', '', '', '')
     header = template % ('Line #', 'Hits', 'Metric', 'Per Hit', '% Metric',
-        'Line Contents')
+                         'Line Contents')
     stream.write("\n")
     stream.write(header)
     stream.write("\n")
@@ -251,6 +246,7 @@ def show_func(filename, start_lineno, func_name, metrics, unit,
         stream.write(txt)
         stream.write("\n")
     stream.write("\n")
+
 
 def show_text(stats, unit, display_unit, output_unit=None, stream=None, stripzeros=False):
     """ Show text for the given metrics.
@@ -265,148 +261,17 @@ def show_text(stats, unit, display_unit, output_unit=None, stream=None, stripzer
 
     for (fn, lineno, name), metrics in sorted(stats.items()):
         show_func(fn, lineno, name, stats[fn, lineno, name], unit, display_unit,
-            output_unit=output_unit, stream=stream, stripzeros=stripzeros)
-
-@magics_class
-class LineProfilerMagics(Magics):
-
-    @line_magic
-    def lprun(self, parameter_s=''):
-        """ Execute a statement under the line-by-line profiler from the
-        line_profiler module.
-
-        Usage:
-          %lprun -f func1 -f func2 <statement>
-
-        The given statement (which doesn't require quote marks) is run via the
-        LineProfiler. Profiling is enabled for the functions specified by the -f
-        options. The statistics will be shown side-by-side with the code through the
-        pager once the statement has completed.
-
-        Options:
-
-        -f <function>: LineProfiler only profiles functions and methods it is told
-        to profile.  This option tells the profiler about these functions. Multiple
-        -f options may be used. The argument may be any expression that gives
-        a Python function or method object. However, one must be careful to avoid
-        spaces that may confuse the option parser.
-
-        -m <module>: Get all the functions/methods in a module
-
-        One or more -f or -m options are required to get any useful results.
-
-        -D <filename>: dump the raw statistics out to a pickle file on disk. The
-        usual extension for this is ".lprof". These statistics may be viewed later
-        by running line_profiler.py as a script.
-
-        -T <filename>: dump the text-formatted statistics with the code side-by-side
-        out to a text file.
-
-        -r: return the LineProfiler object after it has completed profiling.
-
-        -s: strip out all entries from the print-out that have zeros.
-
-        -u: specify metric unit for the print-out in seconds.
-        """
-
-        # Escape quote markers.
-        opts_def = Struct(D=[''], T=[''], f=[], m=[], u=None)
-        parameter_s = parameter_s.replace('"', r'\"').replace("'", r"\'")
-        opts, arg_str = self.parse_options(parameter_s, 'rsf:m:D:T:u:', list_all=True)
-        opts.merge(opts_def)
-
-        global_ns = self.shell.user_global_ns
-        local_ns = self.shell.user_ns
-
-        # Get the requested functions.
-        funcs = []
-        for name in opts.f:
-            try:
-                funcs.append(eval(name, global_ns, local_ns))
-            except Exception as e:
-                raise UsageError('Could not find function %r.\n%s: %s' % (name,
-                    e.__class__.__name__, e))
-
-        profile = LineProfiler(*funcs)
-
-        # Get the modules, too
-        for modname in opts.m:
-            try:
-                mod = __import__(modname, fromlist=[''])
-                profile.add_module(mod)
-            except Exception as e:
-                raise UsageError('Could not find module %r.\n%s: %s' % (modname,
-                    e.__class__.__name__, e))
-
-        if opts.u is not None:
-            try:
-                output_unit = float(opts.u[0])
-            except Exception as e:
-                raise TypeError("Metric unit setting must be a float.")
-        else:
-            output_unit = None
-
-        # Add the profiler to the builtins for @profile.
-        if PY3:
-            import builtins
-        else:
-            import __builtin__ as builtins
-
-        if 'profile' in builtins.__dict__:
-            had_profile = True
-            old_profile = builtins.__dict__['profile']
-        else:
-            had_profile = False
-            old_profile = None
-        builtins.__dict__['profile'] = profile
-
-        try:
-            try:
-                profile.runctx(arg_str, global_ns, local_ns)
-                message = ''
-            except SystemExit:
-                message = """*** SystemExit exception caught in code being profiled."""
-            except KeyboardInterrupt:
-                message = ("*** KeyboardInterrupt exception caught in code being "
-                    "profiled.")
-        finally:
-            if had_profile:
-                builtins.__dict__['profile'] = old_profile
-
-        # Trap text output.
-        stdout_trap = StringIO()
-        profile.print_stats(stdout_trap, output_unit=output_unit, stripzeros='s' in opts)
-        output = stdout_trap.getvalue()
-        output = output.rstrip()
-
-        page(output)
-        print(message, end="")
-
-        dump_file = opts.D[0]
-        if dump_file:
-            profile.dump_stats(dump_file)
-            print('\n*** Profile stats pickled to file %r. %s' % (
-                dump_file, message))
-
-        text_file = opts.T[0]
-        if text_file:
-            pfile = open(text_file, 'w')
-            pfile.write(output)
-            pfile.close()
-            print('\n*** Profile printout saved to text file %r. %s' % (
-                text_file, message))
-
-        return_value = None
-        if 'r' in opts:
-            return_value = profile
-
-        return return_value
+                  output_unit=output_unit, stream=stream, stripzeros=stripzeros)
 
 
 def load_ipython_extension(ip):
     """ API for IPython to recognize this module as an IPython extension.
     """
-    ip.register_magics(LineProfilerMagics)
+    try:
+        from .line_profiler_ipython import LineProfilerMagics
+        ip.register_magics(LineProfilerMagics)
+    except Exception as e:
+        print("line_profiler ipython extension import failed")
 
 
 def load_stats(filename):
@@ -428,6 +293,7 @@ def main():
         parser.error("Must provide a filename.")
     lstats = load_stats(args[0])
     show_text(lstats.metrics, lstats.unit, lstats.display_unit)
+
 
 if __name__ == '__main__':
     main()
