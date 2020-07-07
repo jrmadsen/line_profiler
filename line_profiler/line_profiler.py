@@ -226,10 +226,11 @@ def show_func(filename, start_lineno, func_name, metrics, unit,
         nlines = max(linenos) - min(min(linenos), start_lineno) + 1
         sublines = [''] * nlines
     for lineno, nhits, metric in metrics:
+        perc = 0.0 if not total_metric > 0 else (100 * metric / total_metric)
         d[lineno] = (nhits,
                      '%5.1f' % (metric * scalar),
                      '%5.1f' % (float(metric) * scalar / nhits),
-                     '%5.1f' % (100 * metric / total_metric))
+                     '%5.1f' % (perc))
     linenos = range(start_lineno, start_lineno + len(sublines))
     empty = ('', '', '', '')
     header = template % ('Line #', 'Hits', 'Metric', 'Per Hit', '% Metric',
