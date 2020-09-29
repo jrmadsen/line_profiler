@@ -151,10 +151,8 @@ def find_script(script_name):
     raise SystemExit(1)
 
 
-def main(args=None):
-    if args is None:
-        args = sys.argv
-    usage = "%prog [-s setupfile] [-o output_file_path] scriptfile [arg] ..."
+def parse_args(args):
+    usage = "%prog [-s setupfile] [-o output_file_path] [--] scriptfile [arg] ..."
     parser = optparse.OptionParser(usage=usage, version="%prog 1.0b2")
     parser.allow_interspersed_args = False
     parser.add_option('-l', '--line-by-line', action='store_true',
@@ -181,7 +179,30 @@ def main(args=None):
         parser.print_usage()
         sys.exit(2)
 
-    options, args = parser.parse_args()
+    return parser.parse_args()
+
+
+def main(args=None):
+    if args is None:
+        args = sys.argv
+
+    #
+    options = None
+    args = None
+    if "--" in sys.argv:
+        _idx = sys.argv.index("--")
+        _argv = sys.argv[_idx+1:]
+        options, argv = parse_args(sys.argv[:_idx])
+        args = _argv
+    else:
+        options, args = parse_args()
+
+    try:
+        from ..libpytimemory import initialize
+        if os.path.isfile(args[0]):
+            initialize(args)
+    except ImportError:
+        pass
 
     if not options.outfile:
         if options.line_by_line:
