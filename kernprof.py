@@ -7,6 +7,7 @@ import functools
 import optparse
 import os
 import sys
+import timemory
 
 PY3 = sys.version_info[0] == 3
 
@@ -191,7 +192,7 @@ def main(args=None):
     args = None
     if "--" in sys.argv:
         _idx = sys.argv.index("--")
-        _argv = sys.argv[_idx+1:]
+        _argv = sys.argv[_idx + 1:]
         options, argv = parse_args(sys.argv[:_idx])
         args = _argv
     else:
@@ -266,11 +267,14 @@ def main(args=None):
                             (script_file,), ns, ns)
         except (KeyboardInterrupt, SystemExit):
             pass
+        finally:
+            timemory.finalize()
     finally:
         prof.dump_stats(options.outfile)
         print('Wrote profile results to %s' % options.outfile)
         if options.view:
             prof.print_stats()
+        del prof
 
 
 if __name__ == '__main__':
