@@ -5,9 +5,13 @@ find_package(PythonInterp REQUIRED)
 
 set(CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake/Modules ${CMAKE_MODULE_PATH})
 
-find_package(Cython ${TIMEMORY_FIND_REQUIREMENT})
-if(NOT Cython_FOUND)
-    return()
+if("${CMAKE_PROJECT_NAME}" STREQUAL "${PROJECT_NAME}")
+    find_package(Cython REQUIRED)
+else()
+    find_package(Cython)
+    if(NOT Cython_FOUND)
+        return()
+    endif()
 endif()
 
 find_package(PythonExtensions REQUIRED)
