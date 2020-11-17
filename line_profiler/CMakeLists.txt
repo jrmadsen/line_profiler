@@ -26,6 +26,13 @@ set_target_properties(${module_name} PROPERTIES
     ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/${CMAKE_PROJECT_NAME}/line_profiler
 )
 
+# compile options
+include(CheckCCompilerFlag)
+check_c_compiler_flag("-Wno-deprecated-declarations" line_profiler_no_deprecated_declarations)
+if(line_profiler_no_deprecated_declarations)
+    target_compile_options(${module_name} PRIVATE "-Wno-deprecated-declarations")
+endif()
+
 file(GLOB pysources ${CMAKE_CURRENT_SOURCE_DIR}/*.py)
 foreach(f ${pysources})
     get_filename_component(fname "${f}" NAME)
@@ -36,9 +43,6 @@ endforeach()
 
 # Transform the C++ library into an importable python module
 python_extension_module(${module_name})
-
-# link to python libraries
-target_link_libraries(${module_name} ${PYTHON_LIBRARIES})
 
 # Install the C++ module to the correct relative location
 # (this will be an inplace build if you use `pip install -e`)
