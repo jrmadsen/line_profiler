@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.11 FATAL_ERROR)
 project(line_profiler LANGUAGES C)
 
-list(APPEND CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake/Modules)
+list(APPEND CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake/Modules ${PROJECT_SOURCE_DIR}/cmake/Modules)
 
 if(NOT Python_ADDITIONAL_VERSIONS)
     set(Python_ADDITIONAL_VERSIONS 3.9 3.8 3.7 3.6)
@@ -13,9 +13,11 @@ if(TIMEMORY_PYTHON_VERSION)
     unset(Python_ADDITIONAL_VERSIONS)
 endif()
 
-find_package(PythonInterp ${_PYVERSION} REQUIRED)
-find_package(PythonExtensions ${_PYVERSION} REQUIRED)
-find_package(PythonLibs ${_PYVERSION} REQUIRED)
+include(PythonConfig)
+
+find_package(PythonInterp ${_PYVERSION} EXACT REQUIRED)
+find_package(PythonExtensions ${_PYVERSION} EXACT REQUIRED)
+find_package(PythonLibs ${_PYVERSION} EXACT REQUIRED)
 
 if("${CMAKE_PROJECT_NAME}" STREQUAL "${PROJECT_NAME}")
     find_package(Cython REQUIRED)

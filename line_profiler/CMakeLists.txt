@@ -37,6 +37,9 @@ endforeach()
 # Transform the C++ library into an importable python module
 python_extension_module(${module_name})
 
+# link to python libraries
+target_link_libraries(${module_name} ${PYTHON_LIBRARIES})
+
 # Install the C++ module to the correct relative location
 # (this will be an inplace build if you use `pip install -e`)
 #file(RELATIVE_PATH _install_dest "${CMAKE_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}")
