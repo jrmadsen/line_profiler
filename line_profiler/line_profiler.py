@@ -16,7 +16,6 @@ import optparse
 import os
 import sys
 
-import timemory.component
 from ._line_profiler import LineProfiler as CLineProfiler
 
 # Python 2/3 compatibility utils
