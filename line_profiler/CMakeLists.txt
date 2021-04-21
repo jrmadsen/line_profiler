@@ -10,8 +10,7 @@ add_cython_target(${module_name} "${cython_source}" C OUTPUT_VAR sources)
 
 # Add any other non-cython dependencies to the sources
 list(APPEND sources
-  ${CMAKE_CURRENT_SOURCE_DIR}/unset_trace.c
-  ${CMAKE_CURRENT_SOURCE_DIR}/timers.c)
+  ${CMAKE_CURRENT_SOURCE_DIR}/unset_trace.c)
 # message(STATUS "[OURS] sources = ${sources}")
 
 # Create C++ library. Specify include dirs and link libs as normal
