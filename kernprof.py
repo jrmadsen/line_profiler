@@ -199,7 +199,7 @@ def main(args=None):
         options, args = parse_args()
 
     try:
-        from ..libpytimemory import initialize
+        from ..libs.libpytimemory import initialize
         if os.path.isfile(args[0]):
             initialize(args)
     except ImportError:
