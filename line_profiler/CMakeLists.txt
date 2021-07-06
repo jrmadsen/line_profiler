@@ -14,7 +14,7 @@ list(APPEND sources
 # message(STATUS "[OURS] sources = ${sources}")
 
 # Create C++ library. Specify include dirs and link libs as normal
-add_library(${module_name} MODULE ${sources})
+add_library(${module_name} MODULE ${TIMEMORY_EXCLUDE_FROM_ALL} ${sources})
 target_include_directories(${module_name} PUBLIC
   ${PYTHON_INCLUDE_DIRS}
   ${CMAKE_CURRENT_SOURCE_DIR}  # for the pure c files defined here
@@ -37,7 +37,7 @@ foreach(f ${pysources})
     get_filename_component(fname "${f}" NAME)
     set(fout ${CMAKE_BINARY_DIR}/${CMAKE_PROJECT_NAME}/line_profiler/${fname})
     configure_file(${f} ${fout} COPYONLY)
-    install(FILES ${fout} DESTINATION ${_install_dest})
+    install(FILES ${fout} DESTINATION ${_install_dest} OPTIONAL)
 endforeach()
 
 # Transform the C++ library into an importable python module
@@ -52,4 +52,4 @@ python_extension_module(${module_name})
 #install(TARGETS ${module_name} LIBRARY DESTINATION "${_install_dest}")
 #file(RELATIVE_PATH _install_dest "${CMAKE_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}")
 #message(STATUS "[OURS] _install_dest = ${_install_dest}")
-install(TARGETS ${module_name} LIBRARY DESTINATION ${_install_dest})
+install(TARGETS ${module_name} LIBRARY DESTINATION ${_install_dest} OPTIONAL)
