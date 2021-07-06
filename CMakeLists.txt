@@ -14,7 +14,7 @@ if(TIMEMORY_PYTHON_VERSION)
     unset(Python_ADDITIONAL_VERSIONS)
 endif()
 
-include(PythonConfig)
+include(ConfigPython)
 
 find_package(PythonInterp ${_PYVERSION} EXACT REQUIRED)
 find_package(PythonExtensions ${_PYVERSION} EXACT REQUIRED)
